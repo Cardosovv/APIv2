@@ -1,8 +1,34 @@
 import sqlite3
 from flask import request, jsonify, Flask
+from jose import jwt
+import datetime
 import bcrypt
 
 app = Flask(__name__)
+#chave secreta
+SECRET_KEY="secret-key-test-bro"
+ALGORITHM="HS256"
+
+def generate_token(user_id, gmail):
+    now = datetime.datetime.utcnow()
+    #Dados a serem incluidos
+    data = {
+        "sub": user_id,
+        "email": gmail,
+        "exp": now + datetime.timedelta(hours=1)
+    }
+
+    #criar token
+    token = jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+    return token
+
+
+#verificação porca de email
+def validate_email(email):
+    if '@' in email and '.' in email:
+        return True
+    return False
+
 
 #tratamento de json e form
 def get_request_data():
@@ -13,11 +39,13 @@ def get_request_data():
     else:
         return {}
 
+
 # Criação do banco de dados 
 def get_database():
-    conn = sqlite3.connect('Banco2.0.db')
+    conn = sqlite3.connect('Banco_dados.db')
     conn.row_factory = sqlite3.Row
     return conn
+
 
 # Criação da tabela 
 @app.route('/', methods=['GET'])
@@ -31,6 +59,7 @@ def create_table():
         conn.commit()
     return jsonify({'Success': 'Table created successfully'})
 
+
 # Criar conta 
 @app.route('/register', methods=['POST'])
 def register():
@@ -38,6 +67,9 @@ def register():
     data = get_request_data()
     gmail = data.get('gmail')
     password = data.get('password')
+    
+    if not validate_email(gmail):
+        return jsonify({'Error':'Gmail is not validate'})
 
     if not gmail or not password:
         return jsonify({'Error': 'Gmail or Password not defined'}), 400
@@ -51,7 +83,12 @@ def register():
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         cur.execute("INSERT INTO users (gmail, password) VALUES (?, ?)", (gmail, hashed_password))
         conn.commit()
-        return jsonify({'Success': 'User registered successfully'}), 201
+
+        cur.execute("SELECT id, gmail FROM users WHERE gmail =?", (gmail,))
+        result = cur.fetchone()
+        user_id = result['id']
+        token = generate_token(user_id, gmail)
+        return jsonify({'Success': 'User registered successfully','token':token}), 201
 
 # Login 
 @app.route('/user/login', methods=['POST'])
@@ -60,17 +97,21 @@ def login():
     gmail = data.get('gmail')
     password = data.get('password')
     
+    if not validate_email(gmail):
+        return jsonify({'Error':'Gmail is not validate'})
+
     if not gmail or not password:
         return jsonify({'Error': 'Gmail or Password not defined'}), 400
 
 
     with get_database() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT password FROM users WHERE gmail = ?", (gmail,))
+        cur.execute("SELECT id, password FROM users WHERE gmail = ?", (gmail,))
         user = cur.fetchone()
 
         if user and bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
-            return jsonify({'login': 'Success'})
+            token = generate_token(user['id'],gmail)
+            return jsonify({'login': 'Success', 'token':token})
         return jsonify({'Error': 'Invalid credentials'}), 401
 
 # Mostrar todos os usuários 
@@ -118,6 +159,9 @@ def delete_user(id):
 def update_user(id):
     data = get_request_data()
     gmail = data.get('gmail')
+
+    if not validate_email(gmail):
+        return jsonify({'Error':'Gmail is not validate'})
 
     if not gmail:
         return jsonify({'Error': 'Gmail is required'}), 400 
