@@ -21,7 +21,7 @@ def get_request_data():
     else:
         return {}
 
-#create database AND table
+#create in database table
 create_table()
 
 
