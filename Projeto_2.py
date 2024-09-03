@@ -1,28 +1,10 @@
-import sqlite3
+from confdb import get_database, create_table
 from flask import request, jsonify, Flask
-from jose import jwt
-import datetime
-import bcrypt
+from hash import encode_pass, decode_pass
+from autent import generate_token, valid_token
 
 app = Flask(__name__)
-#chave secreta
-SECRET_KEY="secret-key-test-bro"
-ALGORITHM="HS256"
-
-def generate_token(user_id, gmail):
-    now = datetime.datetime.utcnow()
-    #Dados a serem incluidos
-    data = {
-        "sub": user_id,
-        "email": gmail,
-        "exp": now + datetime.timedelta(hours=1)
-    }
-
-    #criar token
-    token = jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
-    return token
-
-
+    
 #verificação porca de email
 def validate_email(email):
     if '@' in email and '.' in email:
@@ -39,25 +21,8 @@ def get_request_data():
     else:
         return {}
 
-
-# Criação do banco de dados 
-def get_database():
-    conn = sqlite3.connect('Banco_dados.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# Criação da tabela 
-@app.route('/', methods=['GET'])
-def create_table():
-    with get_database() as conn:
-        cur = conn.cursor()
-        cur.execute("""CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        gmail TEXT NOT NULL UNIQUE,
-        password TEXT)""")
-        conn.commit()
-    return jsonify({'Success': 'Table created successfully'})
+#create database AND table
+create_table()
 
 
 # Criar conta 
@@ -80,14 +45,13 @@ def register():
         if cur.fetchone():
             return jsonify({'Error': 'Gmail is already registered'}), 409
 
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        hashed_password = encode_pass(password)
         cur.execute("INSERT INTO users (gmail, password) VALUES (?, ?)", (gmail, hashed_password))
         conn.commit()
 
         cur.execute("SELECT id, gmail FROM users WHERE gmail =?", (gmail,))
         result = cur.fetchone()
-        user_id = result['id']
-        token = generate_token(user_id, gmail)
+        token = generate_token(result['id'], gmail)
         return jsonify({'Success': 'User registered successfully','token':token}), 201
 
 # Login 
@@ -109,7 +73,7 @@ def login():
         cur.execute("SELECT id, password FROM users WHERE gmail = ?", (gmail,))
         user = cur.fetchone()
 
-        if user and bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
+        if user and decode_pass(user['password'], password):
             token = generate_token(user['id'],gmail)
             return jsonify({'login': 'Success', 'token':token})
         return jsonify({'Error': 'Invalid credentials'}), 401
